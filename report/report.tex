@@ -1,0 +1,157 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{xurl}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{Parameter-Efficient Fine-Tuning for Sentiment Analysis in Foundation Models\\}
+
+\author{
+\IEEEauthorblockN{Zayaan Khan}
+\IEEEauthorblockA{\textit{Computer Science} \\
+\textit{University of Surrey}\\
+Guildford, UK \\
+zk00332@surrey.ac.uk}
+\and
+\IEEEauthorblockN{Rita San}
+\IEEEauthorblockA{\textit{Computer Science} \\
+\textit{University of Surrey}\\
+Guildford, UK \\
+rs02004@surrey.ac.uk}
+\and
+\IEEEauthorblockN{Steven Thomas}
+\IEEEauthorblockA{\textit{Computer Science} \\
+\textit{University of Surrey}\\
+Guildford, UK \\
+st01634@surrey.ac.uk}
+\and
+\IEEEauthorblockN{Joel D'Souza}
+\IEEEauthorblockA{\textit{Computer Science} \\
+\textit{University of Surrey}\\
+Guildford, UK \\
+jd01606@surrey.ac.uk}
+}
+
+\maketitle
+
+\begin{abstract}
+Large language models (LLMs) have been growing in usage over the years  for various purposes such as text generation, translation and understanding the semantic meaning behind a corpus. Transformers which serve as the underlying backbone of many of these large language models are becoming increasingly harder to finetune for optimal performance through standard techniques such as data augmentation, regularization and discriminative fine tuning (applying different learning rates to each layer of the model), ultimately leading to the model becoming overconfident and having hallucinations due to the vast number of parameters being required to control. We propose LoRA (Low-Rank Adaptation), an algorithm which for a given task \cite{ibm_watson}, adapts a foundation model by freezing the weights and injecting trainable rank decomposition matrices into each layer. We will be using LoRA on the DistilBERT foundation model for the downstream task of text classification on a dataset of tweets representing various emotions within their semantic meanings as well as discussing the various approaches a foundation model can use to find optimal hyperparameters through both evolutionary \& metaheuristic algorithms such that overall, we aim to improve the overall confidence score of the foundation model when performing sentiment analysis on a dataset of tweets expressing six different emotions.
+\end{abstract}
+
+\setcounter{section}{0}
+\section{Introduction}
+Emotion classification in text using sentiment analysis is a core challenge within natural language processing, with this downstream task being applied to mental health monitoring, social media analysis and customer service automation such that being able to accurately understand and classify emotional expressions in short text such as tweets, enables AI models to be able to better respond to user’s needs, specifically in critical scenarios such as detecting possible signals of a distressed user on such social platforms \cite{sciencedirect_emotion}. Foundation models have owed their success to sophisticated pre-training objectives and huge model parameters. Foundation models can effectively capture knowledge from massive amounts of labeled and unlabelled data since the rich knowledge is implicitly encoded in the huge number of parameters that benefits a variety of downstream tasks, demonstrated via experimental verification and empirical analysis. Due to the increase in computational power boosted by the wide use of distributed computing devices and strategies, we can further advance the parameter scale of foundation models from million-level to billion-level and in some cases even a trillion-level. However, training these models from scratch or performing full fine-tuning at every layer requires a lot of computational and financial resources with some costing tens of millions of dollars to train \cite{lora_xs} which is impractical for resource-constrained environments. A solution to this is using parameter-efficient fine-tuning methods such as LoRA (Low-Rank Adaptation) which allows selective adaptation of pre-trained models with minimal computational overhead through trainable low-rank matrices whilst keeping the base model frozen and therefore reducing the overall number of hyperparameters from the base model.
+
+Although LoRA improves the model’s efficiency and the problem of overfitting through reducing the number of hyperparameters, its performance is highly sensitive to these changes within the configuration of hyperparameters such that the choice of rank, alpha scaling factor, learning rate and other training hyperparameters can affect the model’s performance. If one resorts to using manual hyperparameter tuning algorithms such as Grid Search then not only is this slow but the search space will not be fully explored and hence this challenge of correctly choosing an efficient hyperparameter 
+fine-tuning method is critical for emotion classification tasks in order for the model to capture linguistic patterns across a range of emotions.
+
+This paper presents our research into using the LoRA fine-tuning algorithm to optimize an emotion classification system built using the foundation model DistilBERT where we utilize the emotion dataset, containing tweets across six distinct emotional categories. We aim to finetune DistilBERT by adapting it’s classification head for our task of text classification and then using LoRA combined with metaheuristic and evolutionary optimization algorithms to then evaluate the performance of the model.
+
+\section{Literature Review}
+
+As larger foundation models are trained every few months, the technique of fine-tuning, which updates all parameters of a pre-trained model, becomes a critical deployment challenge, \emph{e.g.}, GPT-3 \cite{gpt3} with 175 billion parameters. The need for efficient approaches becomes a requirement in the field of transformer fine-tuning.
+
+Adapter tuning \cite{adapter_tuning} is an early approach to address this challenge. The approach inserts 'adapter' modules that have a bottleneck architecture between layers in the Pre-Trained Models (PTMs) and only these modules get updated during fine-tuning. On the other hand, an approach like BitFit \cite{bitfit} updates only the biases in foundation models while freezing the rest of the other modules. These methods, while effective, tend to constrain where and how the adaptation occurs, which can end up either potentially introducing inference latency, or reducing the expressive capacity of the model for complex tasks.
+
+Low-Rank Adaptation (LoRA) \cite{lora_paper} offers greater flexibility by allowing selective adaptation of any weight matrix in the model through low-rank decomposition. This is an approach that can address the previous limitations by utilising trainable rank decomposition matrices into the model layers, that are later merged with the original weights post training to eliminate inference overhead while maintaining competitive performance. 
+
+LoRA freezes the pre-trained weights $W_0$ and injects trainable low-rank decompositions such that the adapted weight matrix $W$ is defined as:
+\begin{equation}
+    W = W_0 + \Delta W = W_0 + BA
+\end{equation}
+where given that $B \in \mathbb{R}^{d \times r}$ and $A \in \mathbb{R}^{r \times k}$ then $W \in \mathbb{R}^{d \times k}$,  such that the rank $r \ll \min(d,k)$, and the update $\Delta W$ is scaled by $\alpha/r$.
+
+This architecture introduces several interdependent hyperparameters:
+\begin{itemize}
+    \item \textbf{rank $r$}: Controls adaptation capacity and parameter count.
+    \item \textbf{scaling factor $\alpha$}: Affects the update magnitude.
+    \item \textbf{dropout rate}: For regularisation.
+    \item \textbf{target modules}: Which layers to adapt.
+    \item \textbf{learning rate} and \textbf{warm-up ratio}.
+\end{itemize}
+These collectively form a complex mixed discrete-continuous optimisation problem that we address through meta-heuristics.
+
+Some traditional methods of hyperparameter optimisation include grid search, random search, and Bayesian optimisation. Both grid search and random search suffer from the curse of dimensionality \cite{curse_dim} making them impractical for high-dimensional spaces.
+
+Bayesian optimisation \cite{bayes_opt} offers an improved sample efficiency by building a probabilistic surrogate model (typically a Gaussian Process) of the objective function. However, the approach faces challenges with mixed discrete and continuous spaces and categorical variables, which are inherent characteristics of LoRA hyperparameter optimisation where parameters like rank and target modules are discrete, while learning rate and dropout are continuous.
+
+Bayesian optimization relies on the notion of proximity and smoothness in a continuous space that is naturally captured by a common Gaussian Process, hence the failure to accurately optimise discrete variables. Additionally, the structural dependency in LoRA (where changing target modules alters the model architecture) would violate the smooth function assumption underlying most Bayesian optimization approaches (where points close to each other in the input space will have similar output values).
+
+For these problems, meta-heuristic algorithms provide an appealing alternative strategy. Because they can naturally handle both discrete and continuous variable types, population-based techniques like the Genetic Algorithm (GA) \cite{holland_ga}, Differential Evolution (DE) \cite{das_de}, and Particle Swarm Optimization (PSO) \cite{wang_pso} are especially attractive. Importantly, they can simultaneously explore several regions of the search space and do not require any assumptions regarding the smoothness or differentiability of the objective function. These features make them appealing for costly black-box optimization problems like hyperparameter tuning in LoRA, where every evaluation requires a complete model training run, which is computationally expensive.
+
+While focused on a Convolutional Neural Network's (CNN) hyperparameters, the recent study by \cite{babaeva_cnn} provides a valuable insight. Despite the differences in the base model (DistilBERT in our study), the authors found that the algorithms' efficiency was greatly increased by incorporating domain knowledge about valid architectures into the meta-heuristics, mainly through the design of the architecture encoding (e.g., defining search space boundaries and utilizing modular building blocks). When defining the search space for LoRA hyperparameters in Transformer models, it will be crucial to explore how we can incorporate domain knowledge into the meta-heuristics to ensure that DistilBERT can be fine-tuned efficiently.
+
+On the other hand, a study by \cite{sen_comparison} compared Differential Evolution (DE), GA, and PSO, and found that DE demonstrated the best performance. The authors concluded that DE's effective ability to balance exploration and exploitation of the search space led to superior optimal solutions, contrasting with PSO's higher risk of premature convergence and GA's slower convergence and limitations for complex hyperparameter configurations.
+
+Overall, it is clear that there are many ways in which parameter-efficient fine-tuning algorithms like LoRA can be applied. Therefore through incorporating knowledge from the existing literature and evaluating performance of population-based methods and evolutionary-based methods, we try to establish an efficient LoRA fine-tuning strategy for the downstream task of analysing the sentiment of sentences from the Emotion dataset.
+
+\begin{thebibliography}{00}
+
+% [1]
+\bibitem{sciencedirect_emotion}
+ScienceDirect, ``Article PII S2666651021000231,'' [Online]. Available: \url{https://www.sciencedirect.com/science/article/pii/S2666651021000231}. [Accessed: 2024].
+
+% [2]
+\bibitem{ibm_watson}
+IBM, ``Tuning with LoRA,'' IBM Watsonx Documentation. [Online]. Available: \url{https://www.ibm.com/docs/en/watsonx/w-and-w/2.1.0?topic=tuning-lora-fine}.
+
+% [3]
+\bibitem{lora_xs}
+M. H. Baig \textit{et al.}, ``LoRA-XS: Low-Rank Adaptation with Extremely Small Number of Parameters,'' \textit{arXiv preprint arXiv:2405.21015}, 2024. [Online]. Available: \url{https://arxiv.org/abs/2405.21015}.
+
+% [4]
+\bibitem{gpt3}
+T. Brown \textit{et al.}, ``Language models are few-shot learners,'' in \textit{Advances in Neural Information Processing Systems}, vol. 33, 2020, pp. 1877--1901. Available: \url{https://arxiv.org/abs/2005.14165}.
+
+% [5]
+\bibitem{adapter_tuning}
+N. Houlsby \textit{et al.}, ``Parameter-efficient transfer learning for NLP,'' in \textit{International Conference on Machine Learning (ICML)}, 2019, pp. 2790--2799. Available: \url{https://arxiv.org/abs/1902.00751}.
+
+% [6]
+\bibitem{bitfit}
+E. B. Zaken, S. Ravfogel, and Y. Goldberg, ``BitFit: Simple parameter-efficient fine-tuning for transformer-based masked language-models,'' in \textit{Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics}, 2022. Available: \url{https://arxiv.org/abs/2106.10199}.
+
+% [7]
+\bibitem{lora_paper}
+E. J. Hu \textit{et al.}, ``LoRA: Low-Rank Adaptation of Large Language Models,'' in \textit{International Conference on Learning Representations (ICLR)}, 2022. Available: \url{https://arxiv.org/abs/2106.09685}.
+
+% [8]
+\bibitem{curse_dim}
+E. Keogh and A. Mueen, ``Curse of Dimensionality,'' in \textit{Encyclopedia of Machine Learning and Data Mining}, Springer, 2017. Available: \url{https://link.springer.com/rwe/10.1007/978-1-4899-7687-1_192}.
+
+% [9]
+\bibitem{bayes_opt}
+J. Snoek, H. Larochelle, and R. P. Adams, ``Practical Bayesian optimization of machine learning algorithms,'' in \textit{Advances in Neural Information Processing Systems}, vol. 25, 2012. Available: \url{https://proceedings.neurips.cc/paper/2012/file/05311655a15b75fab86956663e1819cd-Paper.pdf}.
+
+% [10]
+\bibitem{holland_ga}
+J. H. Holland, \textit{Adaptation in Natural and Artificial Systems}. University of Michigan Press, 1975.
+
+% [11]
+\bibitem{das_de}
+S. Das and P. N. Suganthan, ``Differential evolution: A survey of the state-of-the-art,'' \textit{IEEE Transactions on Evolutionary Computation}, vol. 15, no. 1, pp. 4--31, 2011.
+
+% [12]
+\bibitem{wang_pso}
+D. Wang, D. Tan, and L. Liu, ``Particle swarm optimization algorithm: an overview,'' \textit{Soft Computing}, vol. 22, pp. 387--408, 2018.
+
+% [13]
+\bibitem{babaeva_cnn}
+N. Babaeva \textit{et al.}, ``Hyperparameters optimization of Convolutional Neural Networks using Parameter-Setting-Free Harmony Search,'' in \textit{IEEE Congress on Evolutionary Computation}, 2021.
+
+% [14]
+\bibitem{sen_comparison}
+S. Sen \textit{et al.}, ``A comparative study of DE, GA and PSO applied to complex hyperparameter optimization,'' \textit{Applied Soft Computing}, 2022.
+
+\end{thebibliography}
+
+\end{document}
+
