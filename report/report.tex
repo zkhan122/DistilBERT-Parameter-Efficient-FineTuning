@@ -3,11 +3,13 @@
 % The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
-\usepackage{algorithmic}
+% \usepackage{algorithmic}
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{xcolor}
 \usepackage{xurl}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \begin{document}
@@ -42,8 +44,12 @@ jd01606@surrey.ac.uk}
 
 \maketitle
 
+% \begin{abstract}
+% Large language models (LLMs) have been growing in usage over the years  for various purposes such as text generation, translation and understanding the semantic meaning behind a corpus. Transformers which serve as the underlying backbone of many of these large language models are becoming increasingly harder to finetune for optimal performance through standard techniques such as data augmentation, regularization and discriminative fine tuning (applying different learning rates to each layer of the model), ultimately leading to the model becoming overconfident and having hallucinations due to the vast number of parameters being required to control. We propose LoRA (Low-Rank Adaptation), an algorithm which for a given task \cite{ibm_watson}, adapts a foundation model by freezing the weights and injecting trainable rank decomposition matrices into each layer. We will be using LoRA on the DistilBERT foundation model for the downstream task of text classification on a dataset of tweets representing various emotions within their semantic meanings as well as discussing the various approaches a foundation model can use to find optimal hyperparameters through both evolutionary \& metaheuristic algorithms such that overall, we aim to improve the overall confidence score of the foundation model when performing sentiment analysis on a dataset of tweets expressing six different emotions.
+% \end{abstract}
+
 \begin{abstract}
-Large language models (LLMs) have been growing in usage over the years  for various purposes such as text generation, translation and understanding the semantic meaning behind a corpus. Transformers which serve as the underlying backbone of many of these large language models are becoming increasingly harder to finetune for optimal performance through standard techniques such as data augmentation, regularization and discriminative fine tuning (applying different learning rates to each layer of the model), ultimately leading to the model becoming overconfident and having hallucinations due to the vast number of parameters being required to control. We propose LoRA (Low-Rank Adaptation), an algorithm which for a given task \cite{ibm_watson}, adapts a foundation model by freezing the weights and injecting trainable rank decomposition matrices into each layer. We will be using LoRA on the DistilBERT foundation model for the downstream task of text classification on a dataset of tweets representing various emotions within their semantic meanings as well as discussing the various approaches a foundation model can use to find optimal hyperparameters through both evolutionary \& metaheuristic algorithms such that overall, we aim to improve the overall confidence score of the foundation model when performing sentiment analysis on a dataset of tweets expressing six different emotions.
+Large language models (LLMs) are increasingly used for text generation and semantic understanding, yet fine-tuning them remains computationally expensive. Low-Rank Adaptation (LoRA) addresses this by freezing pre-trained weights and training low-rank matrices, but its performance relies heavily on hyperparameter configuration. This paper proposes optimizing LoRA hyperparameters using a Real-Coded Genetic Algorithm (RCGA) with BLX-$\alpha$ crossover. We fine-tuned a DistilBERT model on the Emotion dataset, comparing our evolutionary approach against a Random Search baseline. While Random Search achieved a best accuracy of 87.80\%, our RCGA method converged to a superior accuracy of \textbf{90.55\%} within 100 evaluations. Robustness testing across multiple seeds confirmed the stability of the evolutionary approach. Our findings indicate that adapting both Attention and Feed-Forward modules with a higher Rank ($r=16$) is critical for maximizing performance on this sentiment analysis task.
 \end{abstract}
 
 \setcounter{section}{0}
@@ -92,6 +98,168 @@ While focused on a Convolutional Neural Network's (CNN) hyperparameters, the rec
 On the other hand, a study by \cite{sen_comparison} compared Differential Evolution (DE), GA, and PSO, and found that DE demonstrated the best performance. The authors concluded that DE's effective ability to balance exploration and exploitation of the search space led to superior optimal solutions, contrasting with PSO's higher risk of premature convergence and GA's slower convergence and limitations for complex hyperparameter configurations.
 
 Overall, it is clear that there are many ways in which parameter-efficient fine-tuning algorithms like LoRA can be applied. Therefore through incorporating knowledge from the existing literature and evaluating performance of population-based methods and evolutionary-based methods, we try to establish an efficient LoRA fine-tuning strategy for the downstream task of analysing the sentiment of sentences from the Emotion dataset.
+
+\section{Optimisation Algorithms}
+
+\subsection{Problem Representation}
+The hyperparameter optimisation of LoRA involves a mixed search space consisting of continuous variables (learning rate) and discrete, ordered variables (Rank $r$, Alpha $\alpha$, Dropout). To address this, we employed a real-valued vector representation. 
+
+The chromosome is represented as a vector $G = [g_1, g_2, \dots, g_6]$. The learning rate ($g_1$) is encoded directly as a continuous float. The remaining five discrete parameters are encoded as integer indices pointing to a pre-defined list of valid options. For example, if the valid Ranks are $\{2, 4, 8, 16, 24\}$, a gene value of $2.0$ corresponds to Rank $8$. During fitness evaluation, the vector is decoded: continuous genes are used as-is, while index-based genes are rounded to the nearest integer to select the corresponding hyperparameter.
+
+\subsection{Algorithm 1: Real-Coded Genetic Algorithm (RCGA)}
+We propose a Real-Coded Genetic Algorithm (RCGA) specifically designed to navigate the mixed discrete-continuous landscape of LoRA fine-tuning. Unlike standard Binary GAs, which suffer from Hamming cliffs—where a single bit flip can cause a drastic change in phenotype, destroying local search progress—RCGA preserves the property of locality. This is crucial for parameters like Rank and Alpha, which possess an ordinal relationship ($r=4 < r=8 < r=16$). By operating in a continuous representation and mapping to the nearest discrete index, the algorithm can exploit local gradients and explore the solution space "between" parents.
+
+\subsubsection{Crossover (BLX-$\alpha$)}
+To balance exploration and exploitation, we utilized the Blend Crossover (BLX-$\alpha$) operator. For two parent genes $x_1$ and $x_2$ (where $x_1 < x_2$), the offspring $y$ is sampled uniformly from the interval:
+\begin{equation}
+    [x_1 - \alpha(x_2 - x_1), x_2 + \alpha(x_2 - x_1)]
+\end{equation}
+We selected $\alpha = 0.5$, which allows the algorithm to search slightly outside the bounds of the parents, preserving population diversity. For the index-based genes, the resulting floating-point value is clipped to the valid index range and rounded.
+
+\subsubsection{Mutation}
+We applied a random reset mutation with a probability of $0.1$. If a gene is selected for mutation, it is replaced by a new random value sampled uniformly from the initialization range of that specific parameter.
+
+\subsubsection{Selection and Elitism}
+A tournament selection mechanism was used to choose parents for the next generation. To ensure convergence stability, we implemented elitism, where the single best individual from the current generation is copied unchanged to the next generation.
+
+\begin{algorithm}
+\caption{RCGA with BLX-$\alpha$ Crossover}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Population Size $N$, Generations $G$, $\alpha=0.5$
+\State \textbf{Output:} Best Hyperparameter Vector $x_{best}$
+\State Initialize population $P$ with random real-valued vectors
+\State Evaluate fitness $f(x)$ for all $x \in P$
+\For{$gen = 1$ to $G$}
+    \State $P_{new} \gets \emptyset$
+    \State $x_{best} \gets \text{argmax}_{x \in P} f(x)$
+    \State Add $x_{best}$ to $P_{new}$ \Comment{Elitism}
+    \While{$|P_{new}| < N$}
+        \State Select parents $p_1, p_2$ via Tournament Selection
+        \State $child \gets$ \textbf{empty vector}
+        \For{each gene $i$}
+            \State $d = |p_{1,i} - p_{2,i}|$
+            \State $min = \min(p_{1,i}, p_{2,i}) - \alpha \cdot d$
+            \State $max = \max(p_{1,i}, p_{2,i}) + \alpha \cdot d$
+            \State $child_i \gets \text{Uniform}(min, max)$
+            \State $child_i \gets \text{Clip}(child_i, \text{lower\_bound}_i, \text{upper\_bound}_i)$
+        \EndFor
+        \State Apply Random Reset Mutation to $child$ ($prob=0.1$)
+        \State Add $child$ to $P_{new}$
+    \EndWhile
+    \State $P \gets P_{new}$
+    \State Evaluate fitness for all $x \in P$
+\EndFor
+\State \Return $x_{best}$
+\end{algorithmic}
+\end{algorithm}
+
+% ==================================================================
+% TODO: RITA - INSERT PSO / SHADE ALGORITHM DESCRIPTION HERE
+% ==================================================================
+%\subsection{Algorithm 2: }
+
+\section{Experimental Results}
+
+\subsection{Experimental Setup}
+Experiments were conducted using the Google Colab environment with a TPU v5e-1 accelerator. To balance computational feasibility with statistical significance within a resource-constrained environment, the DistilBERT model was fine-tuned on a stratified subset of 3,000 samples from the Emotion dataset. This prioritized a higher volume of evaluations (100 per algorithm) and multi-seed robustness testing over a single training run on the full dataset. To account for stochasticity in neural network training, the final robust evaluation involved re-training the top candidate solutions on three distinct random seeds ($42, 43, 44$) to report the mean accuracy and standard deviation.
+
+The search space was defined as follows:
+\begin{itemize}
+    \item Learning Rate: $[1 \times 10^{-5}, 2 \times 10^{-4}]$
+    \item Rank $r$: $\{2, 4, 8, 16, 24\}$
+    \item Alpha $\alpha$: $\{8, 16, 32, 64, 96\}$
+    \item Warmup Ratio: $\{0.0, 0.06, 0.1\}$
+    \item Dropout: $\{0.0, 0.05, 0.1, 0.2\}$
+    \item Target Modules: $\{\text{Attention}, \text{Attention+FFN}\}$
+\end{itemize}
+
+\subsection{Baseline: Random Search}
+A random search was performed for 20 trials to establish a baseline. The process took approximately 21 minutes (1,273 seconds). The results showed high variance, highlighting the sensitivity of LoRA to hyperparameter configurations.
+
+\begin{table}[htbp]
+\caption{Baseline Random Search Statistics}
+\begin{center}
+\begin{tabular}{|c|c|}
+\hline
+\textbf{Metric} & \textbf{Value} \\
+\hline
+Best Accuracy & 87.80\% \\
+\hline
+Mean Accuracy & 69.40\% \\
+\hline
+Std. Deviation & 10.02\% \\
+\hline
+Total Time & 1,255s \\
+\hline
+\end{tabular}
+\label{tab:random_stats}
+\end{center}
+\end{table}
+
+The best model from Random Search achieved 88.65\% accuracy using Rank 4 and Alpha 64. However, the low mean accuracy (58.90\%) indicates that a large portion of the search space yields sub-optimal models, motivating the use of evolutionary algorithms.
+
+\subsection{RCGA Results}
+The RCGA was run for 5 generations with a population size of 20 (100 total evaluations). The algorithm demonstrated rapid convergence. As shown in Fig.~\ref{fig:rcga_convergence}, the best accuracy improved from 89.75\% in Generation 1 to 90.55\% in Generation 5.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=0.45\textwidth]{images/rcga_convergence.png}} 
+\caption{RCGA Convergence: The algorithm improves accuracy from 89.75\% to 90.55\% over 5 generations. The narrowing gap between Best and Average indicates population convergence.}
+\label{fig:rcga_convergence}
+\end{figure}
+
+The best solution found by RCGA achieved an accuracy of \textbf{90.55\%}, outperforming the random search baseline by 2.75\%. The winning configuration utilised a higher Rank ($r=16$) and Alpha ($\alpha=96$) with both Attention and Feed-Forward layers adapted, suggesting that for this specific task, a higher capacity adapter was beneficial.
+
+\paragraph{Robustness Verification}
+To verify that the RCGA result was not a statistical anomaly, the top 5 solutions were re-evaluated across three seeds. The top-ranked solution maintained a high mean accuracy of 89.57\% ($\pm 0.33\%$). Interestingly, the 3rd ranked solution from the optimisation run proved to be the most robust, achieving a mean accuracy of 90.37\% ($\pm 0.72\%$).
+
+\begin{table}[htbp]
+\caption{Best Hyperparameters Found (RCGA vs Baseline)}
+\begin{center}
+\begin{tabular}{|c|c|c|}
+\hline
+\textbf{Parameter} & \textbf{Random Search Best} & \textbf{RCGA Best} \\
+\hline
+Learning Rate & $1.73 \times 10^{-4}$ & $2.24 \times 10^{-4}$ \\
+\hline
+Rank ($r$) & 4 & 16 \\
+\hline
+Alpha ($\alpha$) & 64 & 96 \\
+\hline
+Target Modules & Attn + FFN & Attn + FFN \\
+\hline
+\textbf{Max Accuracy} & \textbf{87.80\%} & \textbf{90.55\%} \\
+\hline
+\end{tabular}
+\label{tab:best_params}
+\end{center}
+\end{table}
+
+% ==================================================================
+% TODO: INSERT PSO / SHADE RESULTS HERE
+% ==================================================================
+%\subsection{Algorithm 2 Results}
+% [Text describing PSO results, table comparing them...]
+
+\subsection{Discussion}
+The RCGA successfully navigated the search space, outperforming the baseline by 2.75\%. A critical insight is the selection of \textbf{Target Modules}. Random Search often selected only `Attention' modules, yielding lower accuracy. The RCGA converged on \textbf{Attention + Feed-Forward (FFN)} layers, suggesting that for sentiment analysis, modifying attention alone is insufficient; the model requires capacity updates in the FFN to capture semantic emotional nuances.
+
+Furthermore, the algorithm converged on a high scaling factor. The LoRA update rule is $\Delta W = \frac{\alpha}{r} BA$. Standard heuristics suggest $\alpha \approx r$ (scaling factor $\approx 1$). However, our optimal solution ($r=16, \alpha=96$) yields a scaling factor of $\frac{96}{16} = 6$. This implies that the pre-trained weights required aggressive adaptation magnitudes to shift from general language modelling to specific sentiment classification. The RCGA's ability to locate this configuration at the edge of the search space validates the use of BLX-$\alpha$ crossover for boundary exploration.
+
+\section{Conclusion and Future Work}
+In this study, we investigated the efficacy of evolutionary algorithms for hyperparameter optimisation of LoRA-tuned Transformer models. We established a baseline using Random Search, which yielded a best accuracy of 87.80\% and a mean accuracy of 69.40\%. While Random Search provided a competitive best solution, the variability in results highlights the complexity of the search space and the inefficiency of unguided search.
+
+We implemented a Real-Coded Genetic Algorithm (RCGA) with BLX-$\alpha$ crossover to address the mixed discrete-continuous nature of the problem. The RCGA demonstrated rapid convergence, improving the best solution to \textbf{90.55\%} within just 5 generations. Robustness testing across multiple random seeds confirmed that the solutions found by RCGA were stable, with the top-performing models consistently achieving $\approx$90\% accuracy. The results highlight that adapting both Attention and Feed-Forward modules, combined with a higher Rank ($r=16$) and Alpha ($\alpha=96$), was key to maximizing performance on the Emotion dataset.
+
+Future work could extend this research by applying these techniques to larger foundation models (e.g., Llama-3 or Mistral) to verify if these hyperparameter patterns hold at scale. Additionally, further analysis into the correlation between specific LoRA target modules and linguistic tasks could provide heuristics to narrow the search space before optimisation begins, potentially reducing the computational cost of the evolutionary search.
+
+\section*{Appendix}
+\subsection*{Contribution Statement}
+\begin{itemize}
+    \item \textbf{Zayaan Khan}: 
+    \item \textbf{Rita San}: 
+    \item \textbf{Steven Thomas}: 
+    \item \textbf{Joel D'Souza}: 
+\end{itemize}
 
 \begin{thebibliography}{00}
 
