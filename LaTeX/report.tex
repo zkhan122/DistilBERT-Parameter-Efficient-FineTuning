@@ -126,21 +126,45 @@ Overall, it is clear that there are many ways in which parameter-efficient fine-
 
 \noindent We use index-based encoding to ensure uniform exploration across discrete options. For example, a mutation step size of 5 with value-based encoding would have different effects at $rank = 4$ (significant change), as opposed to $rank = 24$ (minimal change). Index-based encoding ensures consistency between irregularly spaced out hyperparameter options. 
 
-\subsection{Algorithm 1: RCGA BLX-$\alpha$}
-\noindent We propose a Real-Coded Genetic Algorithm (RCGA) for optimising LoRA hyperparameters within a mixed discrete-continuous search space. Unlike standard Binary GAs, which suffer from Hamming cliffs, where small mutations to the bit string can cause drastic changes in parameter values, disrupting the search, RCGA preserves the property of locality. This is crucial for parameters like Rank and Alpha, which possess an ordinal relationship (i.e the categories have a meaningful order but the distance between them is not equal; $r=4 < r=8 < r=16$). By operating in a continuous representation and mapping to the nearest discrete index, the algorithm can exploit local gradients and explore the solution space "between" parents. We can now describe the genetic operators implementing this approach:
+\subsection{Algorithm 1: Baseline Random Search}
+\noindent To establish a performance baseline, we employed a Random Search (RS) strategy. RS samples hyperparameter configurations uniformly from the defined search space $\Omega$. For continuous parameters (Learning Rate), values are sampled from a uniform distribution $U(min, max)$. For discrete parameters (Rank, Alpha, Warmup, Dropout), values are selected with equal probability from the pre-defined sets. 
+
+While theoretically inefficient in high-dimensional spaces, RS is a strong baseline for Hyperparameter Optimisation (HPO) because deep learning performance is often sensitive to only a few "effective" dimensions (e.g., Learning Rate). RS guarantees that the search is not biased by local gradients, offering a pure exploration strategy that ensures fair comparison against metaheuristic approaches given a fixed computational budget.
+
+% \subsection{Algorithm 1: RCGA BLX-$\alpha$}
+% \noindent We propose a Real-Coded Genetic Algorithm (RCGA) for optimising LoRA hyperparameters within a mixed discrete-continuous search space. Unlike standard Binary GAs, which suffer from Hamming cliffs, where small mutations to the bit string can cause drastic changes in parameter values, disrupting the search, RCGA preserves the property of locality. This is crucial for parameters like Rank and Alpha, which possess an ordinal relationship (i.e the categories have a meaningful order but the distance between them is not equal; $r=4 < r=8 < r=16$). By operating in a continuous representation and mapping to the nearest discrete index, the algorithm can exploit local gradients and explore the solution space "between" parents. We can now describe the genetic operators implementing this approach:
+
+\subsection{Algorithm 2: RCGA BLX-$\alpha$}
+\noindent We propose a Real-Coded Genetic Algorithm (RCGA) for optimising LoRA hyperparameters. Unlike binary GAs, which face Hamming cliff issues where small bit-flips cause large parameter jumps, RCGA operates directly on the parameter vector. This is crucial for LoRA, where parameters like Rank ($r$) and Alpha ($\alpha$) possess an ordinal relationship ($r=4 < r=8 < r=16$). RCGA allows the optimiser to exploit these local gradients.
+
+% \subsubsection{Crossover (BLX-$\alpha$)}
+% \noindent To balance exploration and exploitation, we utilised the Blend Crossover (BLX-$\alpha$) operator. For two parent genes $x_1$ and $x_2$ (where $x_1 < x_2$), the offspring $y$ is sampled uniformly from the interval:
+% \begin{equation}
+%     [x_1 - \alpha(x_2 - x_1), x_2 + \alpha(x_2 - x_1)]
+% \end{equation}
+% We selected $\alpha = 0.5$, which allows the algorithm to search slightly outside the bounds of the parents, preserving population diversity. For the index-based genes, the resulting floating-point value is clipped to the valid index range and rounded.
 
 \subsubsection{Crossover (BLX-$\alpha$)}
-\noindent To balance exploration and exploitation, we utilised the Blend Crossover (BLX-$\alpha$) operator. For two parent genes $x_1$ and $x_2$ (where $x_1 < x_2$), the offspring $y$ is sampled uniformly from the interval:
+To balance exploration and exploitation, we utilise the Blend Crossover (BLX-$\alpha$) operator. This operator does not merely swap genes between parents but generates offspring in the interval extended by $\alpha$ beyond the parents' values. For two parent genes $x_1$ and $x_2$ (assuming $x_1 < x_2$), the offspring $y$ is sampled uniformly:
 \begin{equation}
-    [x_1 - \alpha(x_2 - x_1), x_2 + \alpha(x_2 - x_1)]
+    y \sim U(x_1 - I \cdot \alpha, x_2 + I \cdot \alpha), \quad \text{where } I = x_2 - x_1
 \end{equation}
-We selected $\alpha = 0.5$, which allows the algorithm to search slightly outside the bounds of the parents, preserving population diversity. For the index-based genes, the resulting floating-point value is clipped to the valid index range and rounded.
+We selected $\alpha = 0.5$, allowing the search to extend slightly beyond the parents boundaries to preserve population diversity.
 
-\subsubsection{Mutation}
-\noindent We applied a random reset mutation with a probability of $0.1$. If a gene is selected for mutation, it is replaced by a new random value sampled uniformly from the initialisation range of that specific parameter.
+% \subsubsection{Mutation}
+% \noindent We applied a random reset mutation with a probability of $0.1$. If a gene is selected for mutation, it is replaced by a new random value sampled uniformly from the initialisation range of that specific parameter.
 
-\subsubsection{Selection and Elitism}
-A tournament selection mechanism was used to choose parents for the next generation. To ensure convergence stability, we implemented elitism, where the single best individual from the current generation is copied unchanged to the next generation.
+% rank_index = np.clip(int(round(self.genes[2])), 0, len(RANK_OPTIONS) - 1)
+\subsubsection{Mutation and Repair}
+A random reset mutation is applied with a probability of $0.1$ per gene to prevent premature convergence. A repair mechanism is strictly enforced after every operation: continuous genes (Learning Rate) are clipped to $[1e-5, 2e-4]$, and discrete genes are rounded to the nearest integer index to map back to valid LoRA configurations (e.g., an index of $1.6$ for Rank maps to index 2, corresponding to $r=8$).
+
+% # Elitism
+% offspring.append(Individual(best_individual.genes.copy()))
+% \subsubsection{Selection and Elitism}
+% A tournament selection mechanism was used to choose parents for the next generation. To ensure convergence stability, we implemented elitism, where the single best individual from the current generation is copied unchanged to the next generation.
+
+\subsubsection{Elitism}
+To ensure monotonic performance improvement, we implement strict elitism. The single best individual from generation $g$ is copied unchanged to generation $g+1$, ensuring the highest validation accuracy found so far is never lost due to stochastic crossover or mutation.
 
 \begin{algorithm}[htbp]
 \caption{RCGA with BLX-$\alpha$ Crossover}
@@ -173,7 +197,7 @@ A tournament selection mechanism was used to choose parents for the next generat
 \end{algorithmic}
 \end{algorithm}
 
-\subsection{Algorithm 2: SHADE}
+\subsection{Algorithm 3: SHADE}
 \noindent The comparative study by Sen et al.~\cite{Dhar_2023} mentioned in the introduction suggests that Evolutionary Algorithms, particularly DE (Differential Evolution), are an ideal choice for navigating gradient-free search spaces. A notable drawback in standard DE is its sensitivity to the manual selection of its control parameters (Crossover Rate $CR$ and Scaling Factor $F$), such that initialising sub-optimal values for these parameters can lead to undesired convergence rates. We instead adopted an enhanced variant of DE: Success-History based Adaptive Differential Evolution (SHADE). SHADE improves on standard DE by automatically adapting its control parameters, driven by historical success information (a form of elitism). This is critical for hyperparameter optimisation where the optimal exploration-exploitation balance may shift as the search progresses through the fitness landscape.
 
 Thoughtful considerations regarding the computational expense of training transformer models (approximately 3-5 minutes per evaluation) were carried out, leaving us with a severely constrained optimisation budget (100 evaluations). However, SHADE's adaptive mechanism allows it to learn from successful parameter combinations, and focus computational resources more effectively compared to random or grid search approaches. 
@@ -251,20 +275,27 @@ Furthermore, SHADE maintains an external archive of recently replaced solutions,
 SHADE has demonstrated superior performance on the CEC2014 benchmark suite and various real-world optimisation problems, particularly excelling in problems with limited evaluation budgets; precisely our scenario~\cite{2014SHADE}. Although JADE (Joint Adaptive Differential Evolution) similarly addresses the limitations of manual parameter tuning found in standard DE, it does not guarantee diversity within the population due to its reliance on a single average. SHADE improves upon this foundation by saving successful parameters to a history list and randomly selects parameter pairs from the list, preventing premature convergence.~\cite{2013SHADE}
 
 \section{Experimental Results}
+
 \subsection{Experimental Setup \& Parameter Ranges}
 
-\noindent We first initialise a population of candidates with random configurations of indices mapped to a specific set of LoRA hyperparameters we decide on. The fitnesses of these individuals are then calculated by obtaining the validation accuracy after training DistilBERT for 3 epochs. The following process outlines the method of evaluation:
+% \noindent We initialise a population of candidates with random configurations of indices mapped to a specific set of LoRA hyperparameters we decide on. The fitnesses of these individuals are then calculated by obtaining the validation accuracy after training DistilBERT for 3 epochs. The following process outlines the method of evaluation:
+
+\noindent We initialise a population of candidates with random configurations. The fitness of these individuals is calculated by obtaining the validation accuracy after training DistilBERT for 3 epochs. The evaluation process is defined as follows:
 
 \begin{enumerate}
-    \item Decode the index vector x into LoRA hyperparameters via a repair function
-    \item Load a fresh DistilBERT-base-uncased model
-    \item Apply LoRA adaptation with decoded hyperparameters and freeze the original weights of DistilBERT
-    \item Train the LoRA matrices and the final, fully connected layer for 3 epochs on 3,000 samples from the Emotion datasets train set using the AdamW optimiser
+    \item Decode the index vector x into LoRA hyperparameters via a repair function.
+    \item Load a fresh \texttt{distilbert-base-uncased} model.
+    % \item Apply LoRA adaptation with decoded hyperparameters and freeze the original weights of DistilBERT
+    \item Apply LoRA adaptation and freeze original weights.
+    % \item Train the LoRA matrices and the final, fully connected layer for 3 epochs on 3,000 samples from the Emotion datasets train set using the AdamW optimiser
+    \item Train the LoRA matrices and classifier head for 3 epochs on 3,000 samples (Emotion training set) using the AdamW optimiser.
     \item Evaluate on the full validation set (2,000 samples)
-    \item Return validation accuracy as fitness (maximisation objective)
+    % \item Return validation accuracy as fitness (maximisation objective) % Not needed as the lead-in sentence already establishes this.
 \end{enumerate}
 
-\noindent All algorithms are initialised with a population of 20 with individuals being evaluated at the start. Offsprings and updates are generated from the starting population and undergo four generational updates, totalling for 100 evaluations. We have chosen these small values (relative to literature) for population and generations as the search space itself has been constrained due to the computational intensiveness of the task at hand. Three epochs are used during training for all algorithms to reinforce fairness, and limit evaluation time. P100 GPUs are used in training for their speed and availability. Finally, the top five configurations are taken from each algorithm and are trained on three unique seeds. The results shown on Table ~\ref{tab:shade_comparison} and Table ~\ref{tab:params} are from the best performing configuration of each algorithm.
+% \noindent All algorithms are initialised with a population of 20 with individuals being evaluated at the start. Offsprings and updates are generated from the starting population and undergo four generational updates, totalling for 100 evaluations. We have chosen these small values (relative to literature) for population and generations as the search space itself has been constrained due to the computational intensiveness of the task at hand. Three epochs are used during training for all algorithms to reinforce fairness, and limit evaluation time. P100 GPUs are used in training for their speed and availability. Finally, the top five configurations are taken from each algorithm and are trained on three unique seeds. The results shown on Table ~\ref{tab:shade_comparison} and Table ~\ref{tab:params} are from the best performing configuration of each algorithm.
+
+\noindent The baseline Random Search was allocated a budget of 20 trials. The metaheuristic algorithms (RCGA, SHADE, PSO) were initialised with a population of 20 and evolved for 5 generations (100 evaluations total). This budget constraint mimics real-world scenarios where foundation model fine-tuning is computationally expensive. Finally, to verify robustness, the top performing configurations were re-evaluated using 3 different random seeds to report the mean accuracy and standard deviation. The results shown on Table ~\ref{tab:shade_comparison} and Table ~\ref{tab:params} are from the best performing configuration of each algorithm.
 
 \begin{table}[htbp]
     \centering
@@ -274,6 +305,7 @@ SHADE has demonstrated superior performance on the CEC2014 benchmark suite and v
     \hline
     \textbf{Algorithm} & \textbf{Parameters} \\
     \hline
+    Random Search & Trials $= 20$ \\
     PSO & $w=0.7$, $c_1=c_2=1.5$ \\
     RCGA BLX-$\alpha$ & $\alpha=0.5$, mut. prob. $<10\%$ \\
     SHADE & $H=20$, A $=1.0$, $p_{\text{best}}=0.4$ \\
@@ -299,13 +331,14 @@ SHADE has demonstrated superior performance on the CEC2014 benchmark suite and v
     \hline
     PSO & 0.905 & 0.893 & 0.002 & 100 & 108.44\\
     \hline
-    RCGA BLX-Alpha & 0.906 & 0.896 & 0.004 & 100 & 108.55\\
+    RCGA BLX-$\alpha$ & 0.906 & 0.896 & 0.004 & 100 & 108.55\\
     \hline
     SHADE & 0.900 & 0.897 & 0.003 & 100 & 72.90\\
     \hline
     \end{tabular}%
     }
-    \caption{Three seed performance of top LoRA configurations}
+    % \caption{Three seed performance of top LoRA configurations}
+    \caption{Robustness Metrics (Top Configuration, 3 Seeds)}
     \label{tab:shade_comparison}
 \end{figure}
 
@@ -318,13 +351,19 @@ SHADE has demonstrated superior performance on the CEC2014 benchmark suite and v
     \hline
     Algorithm & Learning Rate & Warm Up & Rank & Alpha & Dropout & Target Modules\\
     \hline
-    Random Search & 0.0002 & 0.06 & 4 & 64 & 0.1 & Attn+FFN\\
+    % RS & 0.0002 & 0.06 & 4 & 64 & 0.1 & Attn+FFN\\
+    % RS & 1.7e-4 & 0.06 & 4 & 64 & 0.1 & Attn+FFN\\
+    RS & $1.7 \times 10^{-4}$ & 0.06 & 4 & 64 & 0.1 & Attn+FFN\\
     \hline
-    PSO & 0.0002 & 0.1 & 4 & 96 & 0.0 & Attn+FFN\\
+    % PSO & 0.0002 & 0.1 & 4 & 96 & 0.0 & Attn+FFN\\
+    PSO & $2.0 \times 10^{-4}$ & 0.1 & 4 & 96 & 0.0 & Attn+FFN\\
     \hline
-    RCGA BLX-Alpha & 0.0002 & 0.0 & 16 & 96 & 0.0 & Attn+FFN\\
+    % RCGA BLX-Alpha & 0.0002 & 0.0 & 16 & 96 & 0.0 & Attn+FFN\\
+    % RCGA & 2.2e-4 & 0.0 & 16 & 96 & 0.0 & Attn+FFN\\
+    RCGA & $2.2 \times 10^{-4}$& 0.0 & 16 & 96 & 0.0 & Attn+FFN\\
     \hline
-    SHADE & 0.0002 & 0.0 & 24 & 96 & 0.0 & Attn+FFN\\
+    % SHADE & 0.0002 & 0.0 & 24 & 96 & 0.0 & Attn+FFN\\
+    SHADE & $2.0 \times 10^{-4}$ & 0.0 & 24 & 96 & 0.0 & Attn+FFN\\
     \hline
     \end{tabular}%
     }
